@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>2021年台北市結核病確診人數蝴蝶圖</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: "Microsoft JhengHei", system-ui, sans-serif;
+      background-color: #ffffff;
+    }
+
+    .wrapper {
+      width: 100%;
+      height: 100%;
+      min-height: 300px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #chartContainer {
+      width: 95%;
+      max-width: 1400px;
+      min-height: 380px;
+      height: auto;
+      position: relative;
+    }
+
+    .legendCustom {
+      position: absolute;
+      top: 90px;
+      right: 100px;
+      font-size: 18px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrapper">
+    <div id="chartContainer">
+
+      <div class="legendCustom">
+        <span style="color:rgba(94,143,208,0.9);font-weight:bold;">■ 男</span>&nbsp;&nbsp;
+        <span style="color:rgba(214,85,139,0.9);font-weight:bold;">■ 女</span>
+      </div>
+
+      <canvas id="pyramidChart"></canvas>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const ctx = document.getElementById("pyramidChart").getContext("2d");
+
+    // ⭐ 用 fetch 讀 2021 的 csv（檔名請跟你 repo 裡的一樣）
+    fetch('3.3 2021性別年齡組結核病確診數.csv')
+      .then(res => res.text())
+      .then(text => {
+        // 1. 先把 csv 分行
+        const lines = text.trim().split(/\r?\n/).filter(l => l.trim() !== "");
+        const header = lines[0].split(',');   // [性別, 0-14, 15-24, ...]
+        const ageGroups = header.slice(1);    // 去掉「性別」欄，只留年齡組
+
+        let male = [];
+        let female = [];
+
+        // 2. 逐行讀取男、女資料
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          const sex = cols[0].trim();
+          const values = cols.slice(1).map(v => Number(v)); // 轉成數字
+
+          if (sex === "男") {
+            male = values;
+          } else if (sex === "女") {
+            female = values;
+          }
+        }
+
+        const maleNegative = male.map(v => -v);
+
+        const pluginLabels = {
+          id: "labels",
+          afterDraw(chart) {
+            const { ctx, chartArea, scales } = chart;
+            const x = scales.x;
+            const y = scales.y;
+
+            const centerX = x.getPixelForValue(0);
+            const minGap = (x.right - x.left) * 0.05;
+            const offset = 5;
+
+            ctx.save();
+            ctx.font = '12px "Microsoft JhengHei"';
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = "#333";
+
+            // 中線
+            ctx.beginPath();
+            ctx.moveTo(centerX, chartArea.top);
+            ctx.lineTo(centerX, chartArea.bottom);
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // 年齡組標籤
+            ageGroups.forEach((age, i) => {
+              ctx.textAlign = "center";
+              ctx.fillText(age, centerX, y.getPixelForValue(i));
+            });
+
+            // 左右數字標籤
+            chart.data.datasets.forEach(ds => {
+              const isMale = ds.label === "男";
+              ds.data.forEach((v, i) => {
+                const abs = Math.abs(v);
+                let xPos = x.getPixelForValue(v);
+                const yPos = y.getPixelForValue(i);
+
+                if (isMale) {
+                  if (centerX - xPos < minGap) xPos = centerX - minGap;
+                  xPos -= offset;
+                  ctx.textAlign = "right";
+                } else {
+                  if (xPos - centerX < minGap) xPos = centerX + minGap;
+                  xPos += offset;
+                  ctx.textAlign = "left";
+                }
+                ctx.fillText(abs, xPos, yPos);
+              });
+            });
+
+            ctx.restore();
+          }
+        };
+
+        // 3. 畫圖
+        new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: ageGroups,
+            datasets: [
+              { label: "男", data: maleNegative, backgroundColor: "rgba(94,143,208,0.6)", grouped: false },
+              { label: "女", data: female, backgroundColor: "rgba(214,85,139,0.6)", grouped: false }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: "y",
+            plugins: {
+              legend: { display: false },
+              title: {
+                display: true,
+                text: "2021年台北市結核病確診人數蝴蝶圖",
+                font: { size: 22 }
+              },
+              tooltip: {
+                callbacks: {
+                  label: function (ctx) {
+                    return ctx.dataset.label + "：" + Math.abs(ctx.raw);
+                  }
+                }
+              }
+            },
+            layout: { padding: { left: 80, right: 80, top: 40, bottom: 50 } },
+            scales: {
+              x: {
+                grid: {
+                  display: true,
+                  drawOnChartArea: false,
+                  drawTicks: true,
+                  tickLength: 6,
+                  tickColor: "#000"
+                },
+                border: { display: true, color: "#000", width: 1 },
+                min: -120,
+                max: 120,
+                ticks: {
+                  stepSize: 30,
+                  callback: (v) => Math.abs(v)
+                },
+                title: { display: true, text: "人數（人）", font: { size: 16 } }
+              },
+              y: {
+                grid: { display: false },
+                ticks: { display: false },
+                border: { display: false }
+              }
+            }
+          },
+          plugins: [pluginLabels]
+        });
+
+      })
+      .catch(err => {
+        console.error("讀取 CSV 發生錯誤：", err);
+      });
+  </script>
+</body>
+
+</html>
